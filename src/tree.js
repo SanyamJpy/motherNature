@@ -6,20 +6,24 @@ import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.j
  */
 
 export default class Tree {
-  constructor() {
+  constructor(trunkHeight = 3) {
     this.group = new THREE.Group();
 
     //* Tree parameters
     this.parameters = {
-      trunkHeight: 3,
+      trunkHeight: trunkHeight,
       trunkThickness: 0.5,
       leavesHeight: 1.5,
       leavesWidth: 1.5,
       leavesLength: 1.5,
       branches: {
-        projection: 1.3,
+        projection: 1.8,
         height: 0.5,
-        thickness: 0.2,
+        thickness: 0.4,
+        leafCount: 3,
+        leafPositionVariation: 0.17,
+        leafSpread: 0.7,
+        leafScaleVariation: 0.2,
       },
     };
 
@@ -36,6 +40,8 @@ export default class Tree {
       metalness: 0,
       roughness: 0.5,
       wireframe: false,
+      opacity: 0.9,
+      transparent: true,
     });
 
     //* Minimum trunk height for branches to be created
@@ -43,6 +49,9 @@ export default class Tree {
 
     //* List of leaves for future reference
     this.leavesList = [];
+
+    //* tracking the branch direction to avoid overlapping branches
+    this.branchRotation = null;
 
     //* Create the tree
     this.createLeafGeometries();
@@ -86,13 +95,18 @@ export default class Tree {
 
     // Adding branches if trunk is tall enough
     if (this.parameters.trunkHeight > this.minimumTrunkHeightForBranches) {
-      this.createBranches();
+      // Start a fresh rotation sequence whenever the trunk is rebuilt.
+      this.branchRotation = null;
+      for (let i = 0; i < 2; i++) {
+        this.createBranches();
+      }
     }
   }
 
   //* Creating leaves and adding them to the treeTrunk
   createLeaves(randomness = 0, scale = 1) {
     const leaves = new THREE.Mesh(this.leavesGeometry, this.leavesMaterial);
+    leaves.name = "leaves";
 
     // Position
     leaves.position.y =
@@ -126,18 +140,33 @@ export default class Tree {
       0.01,
     );
     const branch = new THREE.Mesh(branchGeometry, this.trunkMaterial);
+    branch.name = "branch";
 
     // Random Y position for the branch along the trunk
-    const branchYPosFromTrunkCenter = Math.random() * 6 + 1;
+    const branchYPosFromTrunkCenter = Math.random() * 2 + 1;
     const branchYPos =
-      this.parameters.trunkHeight * 0.6 +
+      this.parameters.trunkHeight * 0.5 +
       branchYPosFromTrunkCenter * this.parameters.branches.thickness;
 
     // Random rotation for the branch around the trunk
     const branchPivot = new THREE.Group();
+    branchPivot.name = "branch + branchLeaves";
+
+    // Rotation around the Y axis (0, 90, 180, 270 degrees)
     const rotationOptions = [0, Math.PI / 2, Math.PI, -Math.PI / 2];
-    branchPivot.rotation.y =
-      rotationOptions[Math.floor(Math.random() * rotationOptions.length)];
+
+    // Exclude the previous branch's direction, then choose from the remaining options.
+    const availableRotations =
+      this.branchRotation === null
+        ? rotationOptions
+        : rotationOptions.filter(
+            (rotation) => rotation !== this.branchRotation,
+          );
+    const randomRotation =
+      availableRotations[Math.floor(Math.random() * availableRotations.length)];
+    this.branchRotation = randomRotation;
+
+    branchPivot.rotation.y = randomRotation;
 
     // Positioning
     branch.position.x =
@@ -156,15 +185,64 @@ export default class Tree {
      * projection: distance from the trunk to the leaves
      * height: height of the leaves from the ground
      */
-    const leaves = new THREE.Mesh(
-      this.branchLeavesGeometry,
-      this.leavesMaterial,
+    const leaves = new THREE.Group();
+    leaves.name = "branchLeaves";
+
+    // Use evenly spaced X positions so random placement cannot bunch all the leaves together.
+    const leafCount = Math.max(
+      0,
+      Math.floor(this.parameters.branches.leafCount),
     );
-    // Positioning the leaves at the end of the branch
-    leaves.position.x = projection + this.parameters.leavesWidth * 0.25;
-    leaves.position.y = height;
+
+    // domain for the leaves X pos
+    const startLeafX = this.parameters.trunkThickness * 0.5 + projection * 0.25;
+    const endLeafX = projection + this.parameters.leavesWidth * 0.25;
+
+    const positionVariation = this.parameters.branches.leafPositionVariation;
+    const leafSpread = this.parameters.branches.leafSpread;
+    const scaleVariation = this.parameters.branches.leafScaleVariation;
+
+    for (let i = 0; i < leafCount; i++) {
+      // track the progress of the leaf along the branch to space them out evenly, then add some randomness to their position
+      const progress = leafCount === 1 ? 0.5 : i / (leafCount - 1);
+      const evenlySpacedX = startLeafX + progress * (endLeafX - startLeafX);
+      // Add some randomness to the X position of the leaves so they don't all line up perfectly
+      const xJitter = (Math.random() * 2 - 1) * positionVariation;
+      // Clamp the X position of the leaves so they don't go outside the branch
+      const leafX = Math.min(
+        endLeafX,
+        Math.max(startLeafX, evenlySpacedX + xJitter),
+      );
+
+      // Stagger leaves in height and depth so their individual shapes stay visible.
+      const depthProgress = leafCount === 1 ? 0.5 : progress;
+      // depth = Z offset from the branch, height = Y offset from the branch
+      const depthOffset = (depthProgress - 0.5) * leafSpread;
+      const heightOffset = (i % 2 === 0 ? -1 : 1) * leafSpread * 0.25;
+      // Y pos
+      const leafY =
+        height + heightOffset + (Math.random() * 2 - 1) * positionVariation;
+
+      // Z pos
+      const leafZ = depthOffset + (Math.random() * 2 - 1) * positionVariation;
+
+      // Scale variation
+      const leafScale = 1 + (Math.random() * 2 - 1) * scaleVariation;
+
+      leaves.add(this.createBranchLeaf(leafX, leafY, leafZ, leafScale));
+    }
 
     return leaves;
+  }
+
+  //* Create one branch leaf so every leaf uses the same geometry and material
+  createBranchLeaf(x, y, z, scale) {
+    const leaf = new THREE.Mesh(this.branchLeavesGeometry, this.leavesMaterial);
+    leaf.name = "branchLeaf";
+    leaf.position.set(x, y, z);
+    leaf.scale.setScalar(scale);
+
+    return leaf;
   }
 
   //* Rebuild the tree by disposing of old geometries and creating new ones

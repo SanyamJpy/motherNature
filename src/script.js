@@ -9,7 +9,7 @@ import Tree from "./tree.js";
  * Base
  */
 // Debug
-const gui = new GUI();
+const gui = new GUI({ width: 400 });
 
 // Debug object
 const debugObject = {};
@@ -17,14 +17,15 @@ const debugObject = {};
 debugObject.createLeaves = () => {
   console.log("added leaves");
 
-  tree.createLeaves(2.5, 0.6 + Math.random() * 0.4);
+  tree1.createLeaves(2.5, 0.6 + Math.random() * 0.4);
 };
 
 debugObject.createBranches = () => {
   console.log("added branches");
+  // console.log(tree.group);
 
-  if (tree.parameters.trunkHeight > 2) {
-    tree.createBranches();
+  if (tree1.parameters.trunkHeight > 2) {
+    tree1.createBranches();
   } else {
     console.log("tree small");
   }
@@ -63,16 +64,32 @@ scene.add(floor);
  * Tree
  */
 
-const tree = new Tree();
-scene.add(tree.group);
+const tree1 = new Tree();
+scene.add(tree1.group);
+console.log(tree1);
 
-gui.add(tree.leavesMaterial, "wireframe");
+// for (let i = 0; i < 20; i++) {
+//   const tree = new Tree(Math.random() * 2 + 2);
+//   tree.group.position.x = Math.random() * 30 - 15;
+//   tree.group.position.z = Math.random() * 30 - 15;
+//   scene.add(tree.group);
+// }
+
+gui.add(tree1.leavesMaterial, "wireframe");
 gui
-  .add(tree.parameters, "trunkHeight")
+  .add(tree1.parameters, "trunkHeight")
   .min(2)
   .max(10)
   .step(0.1)
-  .onFinishChange(() => tree.rebuild());
+  .onFinishChange(() => tree1.rebuild());
+
+// Add leafSpread to GUI
+gui
+  .add(tree1.parameters.branches, "leafSpread")
+  .min(0.1)
+  .max(2)
+  .step(0.01)
+  .onFinishChange(() => tree1.rebuild());
 
 /**
  * Lights
@@ -123,7 +140,7 @@ const camera = new THREE.PerspectiveCamera(
   0.1,
   100,
 );
-camera.position.set(-8, 4, 8);
+camera.position.set(-4, 4, 5);
 scene.add(camera);
 
 // Controls
